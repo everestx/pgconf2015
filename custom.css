@@ -1,0 +1,12 @@
+#pre-center, #pre-small {
+  margin: 0 auto;
+  width: 70%;
+  height: 100%;
+}
+#pre-center {
+  width: 50%;
+  text-align: center;
+}
+#pre-small {
+  font-size: .35em;
+}
