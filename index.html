@@ -20,8 +20,11 @@
 		<!-- Code syntax highlighting -->
 		<link rel="stylesheet" href="lib/css/zenburn.css">
 
+    <!-- my custom additions -->
+    <link rel="icon" type="image/x-icon" href="http://wiki.postgresql.org/favicon.ico">
     <link rel="stylesheet" href="custom.css">
-		<!-- Printing and PDF exports -->
+		
+    <!-- Printing and PDF exports -->
 		<script>
 			var link = document.createElement( 'link' );
 			link.rel = 'stylesheet';
@@ -38,6 +41,9 @@
 	<body>
 
 		<div class="reveal">
+      <div class="footer">
+        <p><a href="https://everestx.github.io/pgconf2015">https://everestx.github.io/pgconf2015</a></p>
+      </div>
 
 			<!-- Any section element inside of this container is displayed as a slide -->
 			<div class="slides">
@@ -190,15 +196,17 @@ postgresql::server::database_grant {'app_user':
         </section>
         <section>
         <section>
-          <h2>Do it yourself</h2>
+          <h2>Dig in!</h2>
+          <small>
           <p style="text-align: left">Puppet makes this all super easy, we just have to look deeper.
           </br>
-          </br> - Separate config into workable, repeatable pieces.
+          </br> - Separate the config steps into workable, repeatable pieces.
           </br> - Server Config, Roles, Databases and Permissions
           </br> - Hieradata for structured yaml config
           </br> - Extreme patience
           </br>
           </br>The secret sauce is Puppet Lab's custom resource type.</p>
+          </small>
         </section>
         <section>
           <h2>The Psql Resource Type</h2>
@@ -294,18 +302,22 @@ $myhash = hiera('cmm_pgsql::dbconfig::myapp1')
         </section>
         <section>
           <a href="https://github.com/covermymeds/cmm_pgsql/blob/master/manifests/init.pp">manifests/init.pp</a>
+          <small>
           <p>The main class determines master vs. slave and failover status. Masters do everything, slaves
           do almost nothing (they're read only). Hosts in failover do absolutely nothing.</p>
           <p>Statuses are determined by
           <a href="https://github.com/covermymeds/cmm_pgsql/blob/master/lib/facter/pg_replication.rb">lib/facter/pg_replication.rb</a>
+          </small>
         </section>
         <section>
           <a href="https://github.com/covermymeds/cmm_pgsql/blob/master/manifests/setup.pp">manifests/setup.pp</a>
+          <small>
           <p>Base setup will install requirements like SSL keys for client connections, other supporting packages
-          (pg_top, pg_repack, etc), Postgres configuration and Shinken (nagios) Monitors. Masters and slaves alike get base setup configuration. 
+          (pg_top, pg_repack, etc), Postgres configuration and Shinken (nagios) Monitors. Masters and slaves alike get base setup configuration.
+          </small>
         </section>
         <section>
-          <h2>Hieradata</h2>
+          <h4>Hieradata</h4>
           <small>Again we'll use the simplicity of
           hieradata configs to define postgresql.conf. This allows us to set a common server config and also set
           per-server configs (custom tuning FTW).
@@ -336,20 +348,87 @@ cmm_pgsql::config:
         </section>
         <section>
           <a href="https://github.com/covermymeds/cmm_pgsql/blob/master/manifests/master.pp">manifests/master.pp</a>
+          <small>
+          <p>This class performs setup of master related tasks.</p>
+          <ul>
+            <li>Create administrative users (not postgres) for taking backups and handling deployments</li>
+            <li>Create default permissions on the public schema; REVOKE CREATE by default</li>
+            <li>Determines whether any application roles and databases need to be created</li> 
+          </ul>
+          <p>At this point, creation of application credentials is started with a lookup of <code>cmm_pgsql::dblist::&lt;cluster&gt;</code></p>
+          </small>
         </section>
         <section>
           <a href="https://github.com/covermymeds/cmm_pgsql/blob/master/manifests/appdb.pp">manifests/appdb.pp</a>
+          <small>
+          <p>From <code>manifests/master.pp</code> calls to <code>appdb { 'db1': ['app1', 'app2', 'app3'] }</code> will generate database creation for 
+          a single app.  After the database is created, it then starts calls to <code>manifests/dbhandle.pp</code></p>
+          </small>
         </section>
         <section>
           <a href="https://github.com/covermymeds/cmm_pgsql/blob/master/manifests/dbhandle.pp">manifests/dbhandle.pp</a>
+          <small>
+          <p> The dbhandle type is essentially a hackzor (see <q>dirty little secrets</q>) to connect the database creation with the application credentials.  
+          This takes the name parameter and allows unique creation of the db role credentials by splitting on a pre-concatenated resource name.
+          </small>
         </section>
         <section>
           <a href="https://github.com/covermymeds/cmm_pgsql/blob/master/manifests/appuser.pp">manifests/appuser.pp</a>
+          <small>
+          <p>Finally, the PostgreSQL roles are created and permissions are satisfied with SQL Grant templates.  This is very powerful, yet simple to implement.</p>
+          <pre><code data-trim># Create a unique resource name
+$role_grants = "role:${role} ${username}@${database}"
+# Only define the role if it doesn't exist
+unless defined(Postgresql_psql[$role_grants]) {
+  postgresql_psql { $role_grants:
+    command    => template("cmm_pgsql/grants/${role}.sql.erb"),
+    db         => $database,
+    psql_user  => $::postgresql::server::user,
+    psql_group => $::postgresql::server::group,
+    psql_path  => $::postgresql::server::psql_path,
+    unless     => "SELECT nspname, defaclobjtype, defaclacl
+                 FROM pg_default_acl a
+                 JOIN pg_namespace b ON a.defaclnamespace=b.oid
+                 WHERE defaclobjtype = 'r'
+                 AND aclcontains(defaclacl, '\"${username}\"=r/postgres')",
+    require    => Postgresql::Server::Role[$username],
+  }
+          </code></pre>
+          </small>
         </section>
         <section>
-          And that's not all...
+          Verify Read Permissions
+          <small>
+          <p>The 'unless' parameter allows simplified permission verification</p>
+          <pre><code data-trim># Determine if role permissions have been applied
+SELECT nspname, defaclobjtype, defaclacl
+  FROM pg_default_acl a
+  JOIN pg_namespace b ON a.defaclnamespace=b.oid
+  WHERE defaclobjtype = 'r'
+  AND aclcontains(defaclacl, '"username"=r/postgres')
+
+## Output
+ nspname | defaclobjtype |                   defaclacl
+---------+---------------+---------------------------------------------
+ public  | r             | {username=r/postgres,username=arwd/postgres}
+(1 row)
+          </code></pre>
+          </small>
         </section>
       </section> 
+      <section>
+        <h2>Data Flow</h2>
+        <p><img style="padding: 20px;" src="/images/credentials_workflow.png">
+      </section>
+      <section>
+         <h2>Dirty Little Secrets</h2>
+         <small>
+         <ul>
+           <li>A custome <code>prefix_keys()</code> function allows us to uniquify data structures. Credit: <a href="http://competa.com/blog/2013/10/defining-resources-in-puppet-based-on-hiera-data/">competa.com</a></li>
+           <li>Some Puppets can't loop yet. Build small, nested defined types and feed the data we need to them</li>
+         </ul>
+         </small>
+      </section>
 			</div>
 
 		</div>
