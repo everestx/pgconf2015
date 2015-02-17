@@ -16,3 +16,6 @@
   left: 1em;
   font-size: 0.5em;
 }
+.reveal .slides img {
+  border: 1px solid #999999;
+}
