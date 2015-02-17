@@ -23,7 +23,7 @@
     <!-- my custom additions -->
     <link rel="icon" type="image/x-icon" href="http://wiki.postgresql.org/favicon.ico">
     <link rel="stylesheet" href="custom.css">
-		
+
     <!-- Printing and PDF exports -->
 		<script>
 			var link = document.createElement( 'link' );
@@ -353,7 +353,7 @@ cmm_pgsql::config:
           <ul>
             <li>Create administrative users (not postgres) for taking backups and handling deployments</li>
             <li>Create default permissions on the public schema; REVOKE CREATE by default</li>
-            <li>Determines whether any application roles and databases need to be created</li> 
+            <li>Determines whether any application roles and databases need to be created</li>
           </ul>
           <p>At this point, creation of application credentials is started with a lookup of <code>cmm_pgsql::dblist::&lt;cluster&gt;</code></p>
           </small>
@@ -361,14 +361,14 @@ cmm_pgsql::config:
         <section>
           <a href="https://github.com/covermymeds/cmm_pgsql/blob/master/manifests/appdb.pp">manifests/appdb.pp</a>
           <small>
-          <p>From <code>manifests/master.pp</code> calls to <code>appdb { 'db1': ['app1', 'app2', 'app3'] }</code> will generate database creation for 
-          a single app.  After the database is created, it then starts calls to <code>manifests/dbhandle.pp</code></p>
+          <p>From <code>manifests/master.pp</code> calls to <code>appdb { 'db1': ['app1', 'app2', 'app3'] }</code> will generate a single database creation.
+           After the database is created, it then makes calls to <code>manifests/dbhandle.pp</code> for each app using that database.</p>
           </small>
         </section>
         <section>
           <a href="https://github.com/covermymeds/cmm_pgsql/blob/master/manifests/dbhandle.pp">manifests/dbhandle.pp</a>
           <small>
-          <p> The dbhandle type is essentially a hackzor (see <q>dirty little secrets</q>) to connect the database creation with the application credentials.  
+          <p> The dbhandle type is essentially a hackzor (see <q>dirty little secrets</q>) to link the database creation with the application credentials.
           This takes the name parameter and allows unique creation of the db role credentials by splitting on a pre-concatenated resource name.
           </small>
         </section>
@@ -397,6 +397,20 @@ unless defined(Postgresql_psql[$role_grants]) {
           </small>
         </section>
         <section>
+          SQL Grant Templates
+          <small>
+            <p>Leverage the <code>postgresql_psql</code> resource once again to apply grants.  Passing in a template, the list of
+            Grants will execute against our database.</p>
+          <pre><code data-trim>GRANT select, insert, update, delete ON ALL TABLES IN SCHEMA public TO "<%= @username %>";
+GRANT execute ON ALL functions IN SCHEMA public TO "<%= @username %>";
+GRANT USAGE ON ALL sequences IN SCHEMA public TO "<%= @username %>";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT select, insert, update, delete ON TABLES TO "<%= @username %>";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT execute ON functions to "<%= @username %>";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT usage ON sequences to "<%= @username %>";
+          </code></pre>
+          </small>
+        </section>
+        <section>
           Verify Read Permissions
           <small>
           <p>The 'unless' parameter allows simplified permission verification</p>
@@ -415,7 +429,7 @@ SELECT nspname, defaclobjtype, defaclacl
           </code></pre>
           </small>
         </section>
-      </section> 
+      </section>
       <section>
         <h2>Data Flow</h2>
         <p><img style="padding: 20px;" src="/images/credentials_workflow.png">
